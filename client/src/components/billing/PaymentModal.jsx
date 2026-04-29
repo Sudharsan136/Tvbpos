@@ -19,7 +19,7 @@ export default function PaymentModal({ grandTotal, onConfirm, onClose, loading, 
   
   const printRef = useRef();
   const handlePrint = useReactToPrint({
-    content: () => printRef.current,
+    contentRef: printRef,
   });
 
   return (
