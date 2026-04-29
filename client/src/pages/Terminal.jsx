@@ -8,7 +8,7 @@ import TableCard from '../components/tables/TableCard';
 import MenuPanel from '../components/billing/MenuPanel';
 import CartPanel from '../components/billing/CartPanel';
 import PaymentModal from '../components/billing/PaymentModal';
-import { X, LayoutGrid } from 'lucide-react';
+import { X, LayoutGrid, Globe, CheckCircle } from 'lucide-react';
 
 export default function Terminal() {
   const { tables, setTables } = useTableStore();
@@ -20,9 +20,27 @@ export default function Terminal() {
   const [loading, setLoading] = useState(false);
   const [orderData, setOrderData] = useState(null);
 
+  // Online Orders State
+  const [activeTab, setActiveTab] = useState('dine_in'); // 'dine_in' | 'online'
+  const [onlineOrders, setOnlineOrders] = useState([]);
+  const [selectedOnlineOrder, setSelectedOnlineOrder] = useState(null);
+
   useEffect(() => {
     api.get('/tables').then((r) => setTables(r.data));
+    api.get('/orders?status=open').then((r) => {
+      const online = r.data.filter(o => o.orderType === 'online');
+      setOnlineOrders(online);
+    });
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    socket.on('new_online_order', (order) => {
+      toast.success(`New online order from ${order.source}!`, { icon: '🔔' });
+      setOnlineOrders((prev) => [order, ...prev]);
+    });
+    return () => socket.off('new_online_order');
+  }, [socket]);
 
   const handleTableClick = async (table) => {
     setSelectedTable(table);
@@ -55,7 +73,11 @@ export default function Terminal() {
     try {
       setLoading(true);
       let orderId = activeOrderId;
-      if (!orderId) {
+      
+      // If it's an existing online order, we don't create a new one, we just fire KOT
+      if (selectedOnlineOrder) {
+        orderId = selectedOnlineOrder._id;
+      } else if (!orderId) {
         const cartItems = useCartStore.getState().items;
         const res = await api.post('/orders', {
           tableId: activeTableId,
@@ -131,16 +153,40 @@ export default function Terminal() {
       {/* Left: Floor + Menu */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
-        {/* Floor plan section */}
-        <div className={`bg-white border-b-2 border-[#dcfce7] px-6 py-5 shrink-0 ${selectedTable ? 'pb-3' : ''}`}>
+        {/* Tabs section */}
+        <div className="bg-white border-b-2 border-[#dcfce7] px-6 py-4 shrink-0 flex gap-4">
+          <button
+            onClick={() => setActiveTab('dine_in')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition ${
+              activeTab === 'dine_in' ? 'bg-[#16a34a] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <LayoutGrid size={18} />
+            Dine-In Tables
+          </button>
+          <button
+            onClick={() => setActiveTab('online')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold transition relative ${
+              activeTab === 'online' ? 'bg-[#16a34a] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            <Globe size={18} />
+            Online Orders
+            {onlineOrders.length > 0 && (
+              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">
+                {onlineOrders.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Dynamic Content based on Tab */}
+        <div className={`bg-white border-b-2 border-[#dcfce7] px-6 py-5 shrink-0 ${selectedTable || selectedOnlineOrder ? 'pb-3' : ''}`}>
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-[#dcfce7] flex items-center justify-center">
-                <LayoutGrid size={16} className="text-[#16a34a]" />
-              </div>
-              <h2 className="text-[#111827] font-extrabold text-base">Floor Plan</h2>
-            </div>
-            {selectedTable && (
+            <h2 className="text-[#111827] font-extrabold text-base">
+              {activeTab === 'dine_in' ? 'Floor Plan' : 'Incoming Online Orders'}
+            </h2>
+            {selectedTable && activeTab === 'dine_in' && (
               <div className="flex items-center gap-2 bg-[#f0fdf4] border border-[#bbf7d0] px-3 py-1.5 rounded-full">
                 <span className="text-[#16a34a] text-sm font-bold">{selectedTable.name} selected</span>
                 <button onClick={() => { setSelectedTable(null); clearCart(); }}
@@ -149,9 +195,18 @@ export default function Terminal() {
                 </button>
               </div>
             )}
+            {selectedOnlineOrder && activeTab === 'online' && (
+              <div className="flex items-center gap-2 bg-[#f0fdf4] border border-[#bbf7d0] px-3 py-1.5 rounded-full">
+                <span className="text-[#16a34a] text-sm font-bold">{selectedOnlineOrder.source.toUpperCase()} Order Selected</span>
+                <button onClick={() => { setSelectedOnlineOrder(null); clearCart(); }}
+                  className="text-[#9ca3af] hover:text-[#374151] transition">
+                  <X size={14} />
+                </button>
+              </div>
+            )}
           </div>
 
-          {!selectedTable && (
+          {!selectedTable && activeTab === 'dine_in' && (
             <>
               {sections.map((section) => (
                 <div key={section} className="mb-4 last:mb-0">
@@ -179,12 +234,52 @@ export default function Terminal() {
               </div>
             </>
           )}
+
+          {activeTab === 'online' && !selectedOnlineOrder && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              {onlineOrders.length === 0 ? (
+                <p className="text-gray-500 text-sm py-4 col-span-full">No active online orders.</p>
+              ) : (
+                onlineOrders.map(order => (
+                  <div
+                    key={order._id}
+                    onClick={() => {
+                      setSelectedOnlineOrder(order);
+                      setOrderData(order);
+                      setActiveOrder(order._id, null);
+                      if (order.items) {
+                        setItems(order.items.map(i => ({
+                          _id: i.item._id || i.item, name: i.name, price: i.price, qty: i.qty, taxRate: i.taxRate, notes: i.notes || ''
+                        })));
+                      }
+                    }}
+                    className={`cursor-pointer border-2 rounded-xl p-4 transition-all hover:shadow-md ${order.source === 'zomato' ? 'border-red-200 bg-red-50' : 'border-orange-200 bg-orange-50'}`}
+                  >
+                    <div className="flex justify-between items-center mb-2">
+                      <span className={`px-2 py-1 text-xs font-bold rounded-md text-white ${order.source === 'zomato' ? 'bg-red-500' : 'bg-orange-500'}`}>
+                        {order.source.toUpperCase()}
+                      </span>
+                      <span className="text-gray-500 text-xs">{new Date(order.createdAt).toLocaleTimeString()}</span>
+                    </div>
+                    <p className="font-bold text-gray-800 text-sm">ID: {order.externalOrderId || order._id.slice(-6)}</p>
+                    <p className="text-gray-600 text-xs mt-1">{order.items.length} items • ₹{order.grandTotal}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         {/* Menu panel */}
-        {selectedTable ? (
+        {selectedTable && activeTab === 'dine_in' ? (
           <div className="flex-1 overflow-hidden">
             <MenuPanel />
+          </div>
+        ) : selectedOnlineOrder && activeTab === 'online' ? (
+          <div className="flex-1 flex flex-col items-center justify-center bg-[#f9fafb]">
+             <CheckCircle size={64} className="text-[#16a34a] mb-4 opacity-20" />
+             <h3 className="text-2xl font-bold text-gray-800">Review Online Order</h3>
+             <p className="text-gray-500 mt-2">Click "Fire KOT" to accept and send to kitchen.</p>
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#f9fafb]">
@@ -198,7 +293,7 @@ export default function Terminal() {
       </div>
 
       {/* Right: Cart */}
-      {selectedTable && (
+      {(selectedTable || selectedOnlineOrder) && (
         <div className="w-72 shrink-0 overflow-hidden">
           <CartPanel onFireKOT={handleFireKOT} onGenerateBill={handleGenerateBill} loading={loading} />
         </div>

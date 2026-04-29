@@ -50,32 +50,40 @@ const getOrder = asyncHandler(async (req, res) => {
   res.json(order);
 });
 
-// @desc  Create new order (open table)
+// @desc  Create new order (open table or create online order)
 // @route POST /api/orders
 const createOrder = asyncHandler(async (req, res) => {
-  const { tableId, customerId, items } = req.body;
+  const { tableId, customerId, items, orderType = 'dine_in', source = 'pos' } = req.body;
 
-  const table = await Table.findById(tableId);
-  if (!table) { res.status(404); throw new Error('Table not found'); }
-  if (table.status === 'occupied') { res.status(400); throw new Error('Table already occupied'); }
+  let table = null;
+  if (orderType === 'dine_in') {
+    if (!tableId) { res.status(400); throw new Error('Table ID required for dine_in'); }
+    table = await Table.findById(tableId);
+    if (!table) { res.status(404); throw new Error('Table not found'); }
+    if (table.status === 'occupied') { res.status(400); throw new Error('Table already occupied'); }
+  }
 
   const totals = calcBillTotals(items || []);
 
   const order = await Order.create({
-    table: tableId,
+    table: tableId || null,
+    orderType,
+    source,
     customer: customerId || null,
     items: items || [],
-    createdBy: req.user._id,
+    createdBy: req.user ? req.user._id : null,
     ...totals,
   });
 
-  // Mark table as occupied
-  table.status = 'occupied';
-  table.currentOrder = order._id;
-  await table.save();
+  if (table) {
+    // Mark table as occupied
+    table.status = 'occupied';
+    table.currentOrder = order._id;
+    await table.save();
 
-  const io = req.app.get('io');
-  if (io) io.emit('table_status_changed', { tableId: table._id, status: 'occupied', tableNumber: table.number });
+    const io = req.app.get('io');
+    if (io) io.emit('table_status_changed', { tableId: table._id, status: 'occupied', tableNumber: table.number });
+  }
 
   const populated = await Order.findById(order._id).populate('table', 'number name');
   res.status(201).json(populated);
@@ -129,8 +137,10 @@ const fireKOT = asyncHandler(async (req, res) => {
   const kot = await KOT.create({
     kotNumber,
     order: order._id,
-    table: order.table._id,
-    tableNumber: order.table.number,
+    table: order.table ? order.table._id : null,
+    tableNumber: order.table ? order.table.number : null,
+    orderType: order.orderType,
+    source: order.source,
     items: newItems,
   });
 
@@ -145,8 +155,10 @@ const fireKOT = asyncHandler(async (req, res) => {
     io.to('kitchen').emit('new_kot', {
       kotId: kot._id,
       kotNumber: kot.kotNumber,
-      tableNumber: order.table.number,
-      tableName: order.table.name,
+      tableNumber: order.table ? order.table.number : null,
+      tableName: order.table ? order.table.name : 'Delivery',
+      orderType: order.orderType,
+      source: order.source,
       items: newItems,
       sentAt: kot.sentAt,
     });
@@ -170,9 +182,11 @@ const generateBill = asyncHandler(async (req, res) => {
   await order.save();
 
   // Update table to billed
-  await Table.findByIdAndUpdate(order.table._id, { status: 'billed' });
-  const io = req.app.get('io');
-  if (io) io.emit('table_status_changed', { tableId: order.table._id, status: 'billed', tableNumber: order.table.number });
+  if (order.table) {
+    await Table.findByIdAndUpdate(order.table._id, { status: 'billed' });
+    const io = req.app.get('io');
+    if (io) io.emit('table_status_changed', { tableId: order.table._id, status: 'billed', tableNumber: order.table.number });
+  }
 
   const populated = await Order.findById(order._id)
     .populate('table', 'number name')
@@ -196,10 +210,16 @@ const recordPayment = asyncHandler(async (req, res) => {
   await order.save();
 
   // Free up the table
-  await Table.findByIdAndUpdate(order.table._id, { status: 'available', currentOrder: null });
   const io = req.app.get('io');
-  if (io) io.emit('table_status_changed', { tableId: order.table._id, status: 'available', tableNumber: order.table.number });
-  if (io) io.emit('order_paid', { orderId: order._id, billNumber: order.billNumber, tableNumber: order.table.number });
+  if (order.table) {
+    await Table.findByIdAndUpdate(order.table._id, { status: 'available', currentOrder: null });
+    if (io) {
+      io.emit('table_status_changed', { tableId: order.table._id, status: 'available', tableNumber: order.table.number });
+      io.emit('order_paid', { orderId: order._id, billNumber: order.billNumber, tableNumber: order.table.number });
+    }
+  } else {
+    if (io) io.emit('order_paid', { orderId: order._id, billNumber: order.billNumber, tableNumber: 'Delivery' });
+  }
 
   res.json(order);
 });
@@ -212,16 +232,47 @@ const cancelOrder = asyncHandler(async (req, res) => {
 
   order.status = 'cancelled';
   await order.save();
-  await Table.findByIdAndUpdate(order.table._id, { status: 'available', currentOrder: null });
-
-  const io = req.app.get('io');
-  if (io) io.emit('table_status_changed', { tableId: order.table._id, status: 'available', tableNumber: order.table.number });
+  
+  if (order.table) {
+    await Table.findByIdAndUpdate(order.table._id, { status: 'available', currentOrder: null });
+    const io = req.app.get('io');
+    if (io) io.emit('table_status_changed', { tableId: order.table._id, status: 'available', tableNumber: order.table.number });
+  }
 
   res.json({ message: 'Order cancelled' });
+});
+
+// @desc  Receive incoming online order from Swiggy/Zomato
+// @route POST /api/orders/webhook/online
+const receiveOnlineOrder = asyncHandler(async (req, res) => {
+  const { source, externalOrderId, items } = req.body;
+  
+  if (!['swiggy', 'zomato'].includes(source)) {
+    res.status(400); throw new Error('Invalid source');
+  }
+
+  const totals = calcBillTotals(items || []);
+
+  const order = await Order.create({
+    orderType: 'online',
+    source,
+    externalOrderId,
+    items: items || [],
+    ...totals,
+  });
+
+  const io = req.app.get('io');
+  if (io) {
+    const populated = await Order.findById(order._id);
+    io.emit('new_online_order', populated);
+  }
+
+  res.status(201).json({ success: true, orderId: order._id });
 });
 
 module.exports = {
   getOrders, getOrder, createOrder,
   updateOrderItems, applyDiscount,
   fireKOT, generateBill, recordPayment, cancelOrder,
+  receiveOnlineOrder
 };

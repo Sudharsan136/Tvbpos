@@ -15,7 +15,13 @@ export default function KotCard({ kot, onItemDone, onKotComplete }) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3.5 border-b border-[#f3f4f6]">
         <div>
-          <p className="text-[#111827] font-extrabold text-lg leading-none">Table {kot.tableNumber}</p>
+          {kot.orderType === 'online' ? (
+             <p className={`font-extrabold text-lg leading-none ${kot.source === 'zomato' ? 'text-red-600' : 'text-orange-600'}`}>
+                {kot.source.toUpperCase()}
+             </p>
+          ) : (
+             <p className="text-[#111827] font-extrabold text-lg leading-none">Table {kot.tableNumber}</p>
+          )}
           <p className="text-[#9ca3af] text-xs mt-1 font-semibold">{kot.kotNumber}</p>
         </div>
         <div className="text-right space-y-1.5">

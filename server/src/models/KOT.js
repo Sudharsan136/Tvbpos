@@ -12,8 +12,12 @@ const kotSchema = new mongoose.Schema(
   {
     kotNumber: { type: String, required: true, unique: true },
     order: { type: mongoose.Schema.Types.ObjectId, ref: 'Order', required: true },
-    table: { type: mongoose.Schema.Types.ObjectId, ref: 'Table', required: true },
-    tableNumber: { type: Number, required: true }, // snapshot for quick display
+    table: { type: mongoose.Schema.Types.ObjectId, ref: 'Table', required: false },
+    tableNumber: { type: Number, required: false }, // snapshot for quick display
+    
+    // Integration
+    orderType: { type: String, enum: ['dine_in', 'takeaway', 'online'], default: 'dine_in' },
+    source: { type: String, enum: ['pos', 'swiggy', 'zomato'], default: 'pos' },
     items: [kotItemSchema],
     status: { type: String, enum: ['pending', 'in-progress', 'completed'], default: 'pending' },
     sentAt: { type: Date, default: Date.now },

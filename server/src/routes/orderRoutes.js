@@ -4,8 +4,12 @@ const {
   getOrders, getOrder, createOrder,
   updateOrderItems, applyDiscount,
   fireKOT, generateBill, recordPayment, cancelOrder,
+  receiveOnlineOrder
 } = require('../controllers/orderController');
 const { protect, adminOnly } = require('../middlewares/authMiddleware');
+
+// Webhook for Swiggy/Zomato (No auth middleware because it's a public webhook)
+router.post('/webhook/online', receiveOnlineOrder);
 
 router.get('/', protect, getOrders);
 router.post('/', protect, createOrder);

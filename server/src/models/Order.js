@@ -13,10 +13,15 @@ const orderItemSchema = new mongoose.Schema({
 const orderSchema = new mongoose.Schema(
   {
     billNumber: { type: String, unique: true, sparse: true },
-    table: { type: mongoose.Schema.Types.ObjectId, ref: 'Table', required: true },
+    table: { type: mongoose.Schema.Types.ObjectId, ref: 'Table', required: false },
     customer: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', default: null },
     items: [orderItemSchema],
     kots: [{ type: mongoose.Schema.Types.ObjectId, ref: 'KOT' }],
+    
+    // Order Types & Integration
+    orderType: { type: String, enum: ['dine_in', 'takeaway', 'online'], default: 'dine_in' },
+    source: { type: String, enum: ['pos', 'swiggy', 'zomato'], default: 'pos' },
+    externalOrderId: { type: String, default: null }, // Swiggy/Zomato Order ID
 
     // Financials
     subtotal: { type: Number, default: 0 },
