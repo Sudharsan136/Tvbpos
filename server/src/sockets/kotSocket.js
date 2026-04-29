@@ -41,12 +41,16 @@ const registerKotSocket = (io) => {
     // Kitchen marks entire KOT as done
     socket.on('kot_complete', async ({ kotId }) => {
       try {
-        const kot = await KOT.findByIdAndUpdate(
-          kotId,
-          { status: 'completed', 'items.$[].status': 'done' },
-          { new: true }
-        );
-        if (kot) io.emit('kot_updated', { kotId: kot._id, status: 'completed', items: kot.items });
+        const kot = await KOT.findById(kotId);
+        if (!kot) return;
+        
+        kot.status = 'completed';
+        kot.items.forEach(item => {
+          item.status = 'done';
+        });
+        
+        await kot.save();
+        io.emit('kot_updated', { kotId: kot._id, status: 'completed', items: kot.items });
       } catch (err) {
         console.error('kotSocket error:', err.message);
       }

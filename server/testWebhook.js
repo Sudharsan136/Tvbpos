@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const fetch = require('node-fetch');
 require('dotenv').config();
 
 async function run() {
