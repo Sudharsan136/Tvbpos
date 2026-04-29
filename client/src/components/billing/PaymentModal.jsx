@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { X, Banknote, CreditCard, QrCode, SplitSquareHorizontal, Loader2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { useReactToPrint } from 'react-to-print';
+import { X, Banknote, CreditCard, QrCode, SplitSquareHorizontal, Loader2, Printer } from 'lucide-react';
+import PrintableReceipt from './PrintableReceipt';
 
 const MODES = [
   { id: 'cash', label: 'Cash', icon: Banknote, color: 'text-[#16a34a] bg-[#dcfce7]' },
@@ -10,10 +12,15 @@ const MODES = [
 
 const fmt = (n) => `₹${Number(n).toFixed(2)}`;
 
-export default function PaymentModal({ grandTotal, onConfirm, onClose, loading }) {
+export default function PaymentModal({ grandTotal, onConfirm, onClose, loading, orderData }) {
   const [mode, setMode] = useState('cash');
   const [amountPaid, setAmountPaid] = useState(grandTotal);
   const change = Math.max(0, amountPaid - grandTotal);
+  
+  const printRef = useRef();
+  const handlePrint = useReactToPrint({
+    content: () => printRef.current,
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -81,14 +88,29 @@ export default function PaymentModal({ grandTotal, onConfirm, onClose, loading }
             </div>
           )}
 
-          {/* Confirm */}
-          <button
-            onClick={() => onConfirm({ paymentMode: mode, amountPaid: mode === 'cash' ? amountPaid : grandTotal })}
-            disabled={loading || (mode === 'cash' && amountPaid < grandTotal)}
-            className="w-full py-4 rounded-2xl bg-[#16a34a] hover:bg-[#15803d] text-white font-extrabold text-base transition shadow-lg shadow-[#16a34a]/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-            {loading ? <><Loader2 size={18} className="animate-spin" /> Processing...</> : '✓ Confirm Payment'}
-          </button>
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button
+              onClick={handlePrint}
+              disabled={loading || !orderData}
+              className="px-5 py-4 rounded-2xl bg-[#e5e7eb] hover:bg-[#d1d5db] text-[#374151] font-bold transition flex items-center justify-center gap-2"
+              title="Print Bill"
+            >
+              <Printer size={20} />
+            </button>
+            <button
+              onClick={() => onConfirm({ paymentMode: mode, amountPaid: mode === 'cash' ? amountPaid : grandTotal })}
+              disabled={loading || (mode === 'cash' && amountPaid < grandTotal)}
+              className="flex-1 py-4 rounded-2xl bg-[#16a34a] hover:bg-[#15803d] text-white font-extrabold text-base transition shadow-lg shadow-[#16a34a]/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              {loading ? <><Loader2 size={18} className="animate-spin" /> Processing...</> : '✓ Confirm Payment'}
+            </button>
+          </div>
         </div>
+      </div>
+      
+      {/* Hidden Receipt for Printing */}
+      <div className="hidden">
+        <PrintableReceipt ref={printRef} order={orderData} />
       </div>
     </div>
   );

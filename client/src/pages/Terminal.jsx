@@ -305,6 +305,7 @@ export default function Terminal() {
           onConfirm={handlePayment}
           onClose={() => setShowPayment(false)}
           loading={loading}
+          orderData={orderData}
         />
       )}
     </div>
