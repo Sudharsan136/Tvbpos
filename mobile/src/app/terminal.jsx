@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
   Alert
 } from 'react-native';
-import { LayoutGrid, Globe, X, ShoppingCart, Plus, Minus, Trash2 } from 'lucide-react-native';
+import { LayoutGrid, Globe, X, ShoppingCart, Plus, Minus, Trash2, CreditCard } from 'lucide-react-native';
 import api from '../api';
 import useCartStore from '../store/cartStore';
 
@@ -27,6 +27,9 @@ export default function TerminalScreen() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [showCart, setShowCart] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [paySuccess, setPaySuccess] = useState(false);
+  // Store the actual order object for billed tables
+  const [billedOrder, setBilledOrder] = useState(null);
 
   const {
     items: cartItems,
@@ -62,25 +65,64 @@ export default function TerminalScreen() {
   };
 
   const handleTableClick = async (table) => {
-    setSelectedTable(table);
-    clearCart();
-    setActiveOrder(null, table._id);
-    if (table.currentOrder) {
+    setPaySuccess(false);
+    setBilledOrder(null);
+
+    if (table.status === 'billed') {
+      // For BILLED tables: find the order and open cart modal for payment
       try {
-        const orderId = typeof table.currentOrder === 'object' ? table.currentOrder._id : table.currentOrder;
-        const res = await api.get(`/orders/${orderId}`);
-        setActiveOrder(res.data._id, table._id);
-        
-        if (res.data.items) {
-          const formattedItems = res.data.items.map(i => ({
-            _id: i.item._id || i.item,
+        setLoading(true);
+        const res = await api.get('/orders?status=billed');
+        const order = (res.data || []).find((o) => {
+          const oTableId = o.table?._id || o.table;
+          return String(oTableId) === String(table._id);
+        });
+        if (!order) {
+          Alert.alert('Not found', 'Could not load order. Try refreshing.');
+          return;
+        }
+        setBilledOrder(order);
+        setSelectedTable(table);
+        setActiveOrder(order._id, table._id);
+        if (order.items) {
+          setItems(order.items.map(i => ({
+            _id: i.item?._id || i.item,
             name: i.name,
             price: i.price,
             qty: i.qty,
             taxRate: i.taxRate,
             notes: i.notes || ''
-          }));
-          setItems(formattedItems);
+          })));
+        }
+        setShowCart(true);
+      } catch (e) {
+        Alert.alert('Error', 'Failed to load order.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // For AVAILABLE / OCCUPIED tables: normal flow
+    setSelectedTable(table);
+    clearCart();
+    setActiveOrder(null, table._id);
+    if (table.currentOrder) {
+      try {
+        const orderId = typeof table.currentOrder === 'object'
+          ? table.currentOrder._id
+          : table.currentOrder;
+        const res = await api.get(`/orders/${orderId}`);
+        setActiveOrder(res.data._id, table._id);
+        if (res.data.items) {
+          setItems(res.data.items.map(i => ({
+            _id: i.item?._id || i.item,
+            name: i.name,
+            price: i.price,
+            qty: i.qty,
+            taxRate: i.taxRate,
+            notes: i.notes || ''
+          })));
         }
       } catch (e) {
         console.error(e);
@@ -93,7 +135,6 @@ export default function TerminalScreen() {
     try {
       setLoading(true);
       let orderId = activeOrderId;
-      
       if (!orderId) {
         const res = await api.post('/orders', {
           tableId: activeTableId,
@@ -107,14 +148,12 @@ export default function TerminalScreen() {
         });
       }
       await api.post(`/orders/${orderId}/kot`);
-      Alert.alert("Success", "KOT sent to kitchen!");
       setShowCart(false);
-      
-      // Refresh table status
       const tRes = await api.get('/tables');
       setTables(tRes.data);
+      Alert.alert('✅ KOT Sent', 'Order sent to kitchen!');
     } catch (err) {
-      Alert.alert("Error", "Failed to fire KOT");
+      Alert.alert('Error', err?.response?.data?.message || 'Failed to fire KOT');
     } finally {
       setLoading(false);
     }
@@ -134,65 +173,49 @@ export default function TerminalScreen() {
         setActiveOrder(orderId, activeTableId);
       }
       await api.post(`/orders/${orderId}/bill`);
-      Alert.alert("Success", "Bill generated! Proceed to collect payment.");
-      
+      setShowCart(false);
       const tRes = await api.get('/tables');
       setTables(tRes.data);
-      setShowCart(false);
+      Alert.alert('🧾 Bill Ready', 'Bill generated! Collect payment.');
     } catch (err) {
-      Alert.alert("Error", "Failed to generate bill");
+      Alert.alert('Error', err?.response?.data?.message || 'Failed to generate bill');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRecordPayment = async (table) => {
-    Alert.alert(
-      "Record Payment",
-      `Mark ${table.name} as paid and release the table?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Yes, Paid",
-          onPress: async () => {
-            try {
-              setLoading(true);
-              // Fetch all billed orders and find the one for this table
-              const res = await api.get('/orders?status=billed');
-              const order = (res.data || []).find((o) => {
-                const oTableId = o.table?._id || o.table;
-                return String(oTableId) === String(table._id);
-              });
-              if (!order) {
-                Alert.alert("Error", "Could not find the order for this table. Try refreshing.");
-                return;
-              }
-              await api.post(`/orders/${order._id}/pay`, {
-                paymentMode: 'cash',
-                amountPaid: order.grandTotal || 0,
-              });
-              Alert.alert("✅ Done!", `${table.name} has been released.`);
-              clearCart();
-              setSelectedTable(null);
-              const tRes = await api.get('/tables');
-              setTables(tRes.data);
-            } catch (err) {
-              Alert.alert("Error", err?.response?.data?.message || "Failed to record payment.");
-            } finally {
-              setLoading(false);
-            }
-          }
-        }
-      ]
-    );
+  // No Alert.alert — pure button tap to pay
+  const handleRecordPayment = async () => {
+    if (!billedOrder) return;
+    try {
+      setLoading(true);
+      await api.post(`/orders/${billedOrder._id}/pay`, {
+        paymentMode: 'cash',
+        amountPaid: billedOrder.grandTotal || 0,
+      });
+      setPaySuccess(true);
+      const tRes = await api.get('/tables');
+      setTables(tRes.data);
+    } catch (err) {
+      Alert.alert('Error', err?.response?.data?.message || 'Payment failed. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const closeCart = () => {
+    setShowCart(false);
+    setPaySuccess(false);
+    setBilledOrder(null);
   };
 
   const filteredItems = items.filter(i => i.category === selectedCategory);
+  const isBilledTable = selectedTable?.status === 'billed';
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0f0f1a" />
-      
+
       <View style={styles.header}>
         <Text style={styles.headerTitle}>POS Terminal</Text>
       </View>
@@ -201,14 +224,14 @@ export default function TerminalScreen() {
         // TABLE SELECTION VIEW
         <View style={styles.flex1}>
           <View style={styles.tabBar}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.tabBtn, activeTab === 'dine_in' && styles.tabBtnActive]}
               onPress={() => setActiveTab('dine_in')}
             >
               <LayoutGrid size={16} color={activeTab === 'dine_in' ? '#fff' : '#888'} />
               <Text style={[styles.tabText, activeTab === 'dine_in' && styles.tabTextActive]}>Dine-In</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.tabBtn, activeTab === 'online' && styles.tabBtnActive]}
               onPress={() => setActiveTab('online')}
             >
@@ -226,13 +249,8 @@ export default function TerminalScreen() {
                   table.status === 'occupied' && styles.tableOccupied,
                   table.status === 'billed' && styles.tableBilled,
                 ]}
-                onPress={() => {
-                  if (table.status === 'billed') {
-                    handleRecordPayment(table);
-                  } else {
-                    handleTableClick(table);
-                  }
-                }}
+                onPress={() => handleTableClick(table)}
+                disabled={loading}
               >
                 <Text style={[
                   styles.tableName,
@@ -247,14 +265,20 @@ export default function TerminalScreen() {
                   {table.status.toUpperCase()}
                 </Text>
                 {table.status === 'billed' && (
-                  <Text style={styles.tablePayHint}>Tap to Pay 💳</Text>
+                  <Text style={styles.tablePayHint}>💳 Tap to Pay</Text>
                 )}
               </TouchableOpacity>
             ))}
           </ScrollView>
+          {loading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color="#e94560" />
+              <Text style={styles.loadingText}>Loading order...</Text>
+            </View>
+          )}
         </View>
-      ) : (
-        // MENU SELECTION VIEW
+      ) : !isBilledTable ? (
+        // MENU SELECTION VIEW (occupied tables only)
         <View style={styles.flex1}>
           <View style={styles.activeTableBar}>
             <Text style={styles.activeTableText}>Table {selectedTable.name}</Text>
@@ -297,7 +321,6 @@ export default function TerminalScreen() {
             )}
           />
 
-          {/* Sticky Cart Banner */}
           <TouchableOpacity style={styles.cartBanner} onPress={() => setShowCart(true)}>
             <View style={styles.cartBannerLeft}>
               <ShoppingCart size={20} color="#fff" />
@@ -306,78 +329,123 @@ export default function TerminalScreen() {
             <Text style={styles.cartBannerTotal}>{fmt(getGrandTotal())} →</Text>
           </TouchableOpacity>
         </View>
-      )}
+      ) : null}
 
-      {/* Cart Modal */}
+      {/* Cart / Payment Modal */}
       <Modal visible={showCart} animationType="slide" presentationStyle="pageSheet">
         <SafeAreaView style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Order Cart</Text>
-            <TouchableOpacity onPress={() => setShowCart(false)}>
+            <Text style={styles.modalTitle}>
+              {isBilledTable ? `💳 Payment — ${selectedTable?.name}` : 'Order Cart'}
+            </Text>
+            <TouchableOpacity onPress={closeCart}>
               <X size={24} color="#fff" />
             </TouchableOpacity>
           </View>
 
-          {cartItems.length === 0 ? (
-            <View style={styles.emptyCart}>
-              <ShoppingCart size={48} color="#333" />
-              <Text style={styles.emptyCartText}>Cart is empty</Text>
+          {paySuccess ? (
+            // SUCCESS STATE — no Alert needed
+            <View style={styles.successContainer}>
+              <Text style={styles.successIcon}>✅</Text>
+              <Text style={styles.successTitle}>Payment Recorded!</Text>
+              <Text style={styles.successSub}>{selectedTable?.name} is now available.</Text>
+              <TouchableOpacity
+                style={styles.successBtn}
+                onPress={() => {
+                  closeCart();
+                  setSelectedTable(null);
+                  clearCart();
+                }}
+              >
+                <Text style={styles.successBtnText}>Back to Tables</Text>
+              </TouchableOpacity>
             </View>
           ) : (
-            <FlatList
-              data={cartItems}
-              keyExtractor={item => item._id}
-              contentContainerStyle={styles.cartList}
-              renderItem={({ item }) => (
-                <View style={styles.cartItem}>
-                  <View style={styles.cartItemInfo}>
-                    <Text style={styles.cartItemName}>{item.name}</Text>
-                    <Text style={styles.cartItemPrice}>{fmt(item.price)}</Text>
-                  </View>
-                  <View style={styles.qtyControls}>
-                    <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQty(item._id, item.qty - 1)}>
-                      <Minus size={14} color="#fff" />
-                    </TouchableOpacity>
-                    <Text style={styles.qtyText}>{item.qty}</Text>
-                    <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQty(item._id, item.qty + 1)}>
-                      <Plus size={14} color="#fff" />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.deleteBtn} onPress={() => removeItem(item._id)}>
-                      <Trash2 size={16} color="#ef4444" />
-                    </TouchableOpacity>
-                  </View>
+            <>
+              {cartItems.length === 0 ? (
+                <View style={styles.emptyCart}>
+                  <ShoppingCart size={48} color="#333" />
+                  <Text style={styles.emptyCartText}>No items in cart</Text>
                 </View>
+              ) : (
+                <FlatList
+                  data={cartItems}
+                  keyExtractor={item => item._id}
+                  contentContainerStyle={styles.cartList}
+                  renderItem={({ item }) => (
+                    <View style={styles.cartItem}>
+                      <View style={styles.cartItemInfo}>
+                        <Text style={styles.cartItemName}>{item.name}</Text>
+                        <Text style={styles.cartItemPrice}>{fmt(item.price * item.qty)}</Text>
+                      </View>
+                      {!isBilledTable && (
+                        <View style={styles.qtyControls}>
+                          <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQty(item._id, item.qty - 1)}>
+                            <Minus size={14} color="#fff" />
+                          </TouchableOpacity>
+                          <Text style={styles.qtyText}>{item.qty}</Text>
+                          <TouchableOpacity style={styles.qtyBtn} onPress={() => updateQty(item._id, item.qty + 1)}>
+                            <Plus size={14} color="#fff" />
+                          </TouchableOpacity>
+                          <TouchableOpacity style={styles.deleteBtn} onPress={() => removeItem(item._id)}>
+                            <Trash2 size={16} color="#ef4444" />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                />
               )}
-            />
-          )}
 
-          <View style={styles.cartFooter}>
-            <View style={styles.totalRow}>
-              <Text style={styles.totalLabel}>Grand Total</Text>
-              <Text style={styles.totalValue}>{fmt(getGrandTotal())}</Text>
-            </View>
-            
-            <View style={styles.actionBtns}>
-              <TouchableOpacity 
-                style={[styles.actionBtn, { backgroundColor: '#f59e0b' }]} 
-                onPress={handleFireKOT}
-                disabled={loading || cartItems.length === 0}
-              >
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.actionBtnText}>Fire KOT</Text>}
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.actionBtn, { backgroundColor: '#10b981' }]} 
-                onPress={handleGenerateBill}
-                disabled={loading || cartItems.length === 0}
-              >
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.actionBtnText}>Bill</Text>}
-              </TouchableOpacity>
-            </View>
-          </View>
+              <View style={styles.cartFooter}>
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>Grand Total</Text>
+                  <Text style={styles.totalValue}>
+                    {fmt(isBilledTable ? billedOrder?.grandTotal : getGrandTotal())}
+                  </Text>
+                </View>
+
+                {isBilledTable ? (
+                  // BILLED TABLE: single prominent payment button
+                  <TouchableOpacity
+                    style={styles.payBtn}
+                    onPress={handleRecordPayment}
+                    disabled={loading}
+                  >
+                    {loading
+                      ? <ActivityIndicator color="#fff" />
+                      : (
+                        <View style={styles.payBtnInner}>
+                          <CreditCard size={20} color="#fff" />
+                          <Text style={styles.payBtnText}>Record Cash Payment & Release Table</Text>
+                        </View>
+                      )
+                    }
+                  </TouchableOpacity>
+                ) : (
+                  // NORMAL TABLE: Fire KOT + Bill buttons
+                  <View style={styles.actionBtns}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: '#f59e0b' }]}
+                      onPress={handleFireKOT}
+                      disabled={loading || cartItems.length === 0}
+                    >
+                      {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.actionBtnText}>Fire KOT</Text>}
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, { backgroundColor: '#10b981' }]}
+                      onPress={handleGenerateBill}
+                      disabled={loading || cartItems.length === 0}
+                    >
+                      {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.actionBtnText}>Bill</Text>}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </>
+          )}
         </SafeAreaView>
       </Modal>
-
     </SafeAreaView>
   );
 }
@@ -386,14 +454,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0f0f1a' },
   flex1: { flex: 1 },
   header: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    backgroundColor: '#1a1a2e',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9456033',
+    paddingHorizontal: 20, paddingVertical: 16,
+    backgroundColor: '#1a1a2e', borderBottomWidth: 1, borderBottomColor: '#e9456033',
   },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
-  
+
   tabBar: { flexDirection: 'row', padding: 16, gap: 12 },
   tabBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -413,7 +478,12 @@ const styles = StyleSheet.create({
   tableBilled: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
   tableName: { fontSize: 16, fontWeight: 'bold', color: '#fff', marginBottom: 4 },
   tableStatus: { fontSize: 11, color: '#888', fontWeight: '600' },
-  tablePayHint: { fontSize: 11, color: '#fff', fontWeight: '700', marginTop: 4, opacity: 0.9 },
+  tablePayHint: { fontSize: 11, color: '#fff', fontWeight: '700', marginTop: 4 },
+  loadingOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: '#0f0f1acc', justifyContent: 'center', alignItems: 'center',
+  },
+  loadingText: { color: '#fff', marginTop: 12, fontSize: 14 },
 
   activeTableBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -450,7 +520,7 @@ const styles = StyleSheet.create({
     position: 'absolute', bottom: 16, left: 16, right: 16,
     backgroundColor: '#10b981', borderRadius: 16, padding: 16,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8
+    elevation: 5,
   },
   cartBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   cartBannerItems: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
@@ -461,7 +531,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     padding: 20, borderBottomWidth: 1, borderBottomColor: '#ffffff11'
   },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff' },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff', flex: 1, marginRight: 16 },
   emptyCart: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyCartText: { color: '#666', marginTop: 12, fontSize: 16 },
   cartList: { padding: 16 },
@@ -476,7 +546,7 @@ const styles = StyleSheet.create({
   qtyBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#333', alignItems: 'center', justifyContent: 'center' },
   qtyText: { color: '#fff', fontWeight: 'bold', fontSize: 16, width: 20, textAlign: 'center' },
   deleteBtn: { marginLeft: 8, padding: 4 },
-  
+
   cartFooter: {
     padding: 20, borderTopWidth: 1, borderTopColor: '#ffffff11', backgroundColor: '#16213e'
   },
@@ -486,4 +556,21 @@ const styles = StyleSheet.create({
   actionBtns: { flexDirection: 'row', gap: 12 },
   actionBtn: { flex: 1, paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   actionBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+
+  payBtn: {
+    backgroundColor: '#3b82f6', paddingVertical: 18, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  payBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  payBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+
+  successContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  successIcon: { fontSize: 72, marginBottom: 16 },
+  successTitle: { fontSize: 24, fontWeight: 'bold', color: '#10b981', marginBottom: 8 },
+  successSub: { fontSize: 16, color: '#888', textAlign: 'center', marginBottom: 32 },
+  successBtn: {
+    backgroundColor: '#10b981', paddingVertical: 16, paddingHorizontal: 32,
+    borderRadius: 14, alignItems: 'center',
+  },
+  successBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
 });
