@@ -20,7 +20,7 @@ const httpServer = http.createServer(app);
 // Socket.io setup
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
+    origin: [process.env.CLIENT_URL || 'http://localhost:5173', 'http://localhost:8081'],
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -36,7 +36,7 @@ const path = require('path');
 
 // Middlewares
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin: [process.env.CLIENT_URL || 'http://localhost:5173', 'http://localhost:8081'],
   credentials: true,
 }));
 app.use(express.json());
