@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import api from '../api';
 import socketService from '../services/socket';
 
 const STATUS_COLORS = {
@@ -23,6 +24,16 @@ export default function TrackingScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
+    const fetchInitialKots = async () => {
+      try {
+        const res = await api.get('/kot?status=pending');
+        setKots(res.data || []);
+      } catch (err) {
+        console.error('Failed to fetch initial KOTs', err);
+      }
+    };
+    fetchInitialKots();
+
     const socket = socketService.connect();
 
     socket.on('connect', () => {
