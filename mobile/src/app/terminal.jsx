@@ -163,7 +163,13 @@ export default function TerminalScreen() {
             try {
               setLoading(true);
               const orderId = typeof table.currentOrder === 'object' ? table.currentOrder._id : table.currentOrder;
-              await api.post(`/orders/${orderId}/pay`, { method: 'cash' });
+              // Fetch the order first to get grandTotal for amountPaid
+              const orderRes = await api.get(`/orders/${orderId}`);
+              const grandTotal = orderRes.data.grandTotal || 0;
+              await api.post(`/orders/${orderId}/pay`, { 
+                paymentMode: 'cash',
+                amountPaid: grandTotal 
+              });
               Alert.alert("✅ Done!", `${table.name} has been released.`);
               clearCart();
               setSelectedTable(null);
