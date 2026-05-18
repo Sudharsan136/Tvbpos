@@ -26,8 +26,8 @@ export default function TrackingScreen() {
   useEffect(() => {
     const fetchInitialKots = async () => {
       try {
-        const res = await api.get('/kot?status=pending');
-        setKots(res.data || []);
+        const res = await api.get('/dashboard/kots');
+        setKots(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
         console.error('Failed to fetch initial KOTs', err);
       }
