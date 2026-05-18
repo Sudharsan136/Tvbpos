@@ -147,10 +147,6 @@ export default function TerminalScreen() {
   };
 
   const handleRecordPayment = async (table) => {
-    if (!table.currentOrder) {
-      Alert.alert("Error", "No active order found for this table.");
-      return;
-    }
     Alert.alert(
       "Record Payment",
       `Mark ${table.name} as paid and release the table?`,
@@ -158,20 +154,22 @@ export default function TerminalScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Yes, Paid",
-          style: "default",
           onPress: async () => {
             try {
               setLoading(true);
-              // currentOrder is populated: { _id, status, grandTotal }
-              const orderId = table.currentOrder?._id || table.currentOrder;
-              const grandTotal = table.currentOrder?.grandTotal || 0;
-              if (!orderId) {
-                Alert.alert("Error", "No order found for this table.");
+              // Fetch all billed orders and find the one for this table
+              const res = await api.get('/orders?status=billed');
+              const order = (res.data || []).find((o) => {
+                const oTableId = o.table?._id || o.table;
+                return String(oTableId) === String(table._id);
+              });
+              if (!order) {
+                Alert.alert("Error", "Could not find the order for this table. Try refreshing.");
                 return;
               }
-              await api.post(`/orders/${orderId}/pay`, {
+              await api.post(`/orders/${order._id}/pay`, {
                 paymentMode: 'cash',
-                amountPaid: grandTotal,
+                amountPaid: order.grandTotal || 0,
               });
               Alert.alert("✅ Done!", `${table.name} has been released.`);
               clearCart();
@@ -179,7 +177,7 @@ export default function TerminalScreen() {
               const tRes = await api.get('/tables');
               setTables(tRes.data);
             } catch (err) {
-              Alert.alert("Error", "Failed to record payment.");
+              Alert.alert("Error", err?.response?.data?.message || "Failed to record payment.");
             } finally {
               setLoading(false);
             }
