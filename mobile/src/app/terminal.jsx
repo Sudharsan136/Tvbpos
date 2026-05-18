@@ -162,13 +162,16 @@ export default function TerminalScreen() {
           onPress: async () => {
             try {
               setLoading(true);
-              const orderId = typeof table.currentOrder === 'object' ? table.currentOrder._id : table.currentOrder;
-              // Fetch the order first to get grandTotal for amountPaid
-              const orderRes = await api.get(`/orders/${orderId}`);
-              const grandTotal = orderRes.data.grandTotal || 0;
-              await api.post(`/orders/${orderId}/pay`, { 
+              // currentOrder is populated: { _id, status, grandTotal }
+              const orderId = table.currentOrder?._id || table.currentOrder;
+              const grandTotal = table.currentOrder?.grandTotal || 0;
+              if (!orderId) {
+                Alert.alert("Error", "No order found for this table.");
+                return;
+              }
+              await api.post(`/orders/${orderId}/pay`, {
                 paymentMode: 'cash',
-                amountPaid: grandTotal 
+                amountPaid: grandTotal,
               });
               Alert.alert("✅ Done!", `${table.name} has been released.`);
               clearCart();

@@ -4,7 +4,7 @@ const Table = require('../models/Table');
 // @desc  Get all tables
 // @route GET /api/tables
 const getTables = asyncHandler(async (req, res) => {
-  const tables = await Table.find().sort({ number: 1 }).populate('currentOrder', 'status grandTotal');
+  const tables = await Table.find().sort({ number: 1 }).populate('currentOrder', '_id status grandTotal');
   res.json(tables);
 });
 
