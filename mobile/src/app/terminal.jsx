@@ -146,6 +146,40 @@ export default function TerminalScreen() {
     }
   };
 
+  const handleRecordPayment = async (table) => {
+    if (!table.currentOrder) {
+      Alert.alert("Error", "No active order found for this table.");
+      return;
+    }
+    Alert.alert(
+      "Record Payment",
+      `Mark ${table.name} as paid and release the table?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes, Paid",
+          style: "default",
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const orderId = typeof table.currentOrder === 'object' ? table.currentOrder._id : table.currentOrder;
+              await api.post(`/orders/${orderId}/pay`, { method: 'cash' });
+              Alert.alert("✅ Done!", `${table.name} has been released.`);
+              clearCart();
+              setSelectedTable(null);
+              const tRes = await api.get('/tables');
+              setTables(tRes.data);
+            } catch (err) {
+              Alert.alert("Error", "Failed to record payment.");
+            } finally {
+              setLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const filteredItems = items.filter(i => i.category === selectedCategory);
 
   return (
@@ -185,7 +219,13 @@ export default function TerminalScreen() {
                   table.status === 'occupied' && styles.tableOccupied,
                   table.status === 'billed' && styles.tableBilled,
                 ]}
-                onPress={() => handleTableClick(table)}
+                onPress={() => {
+                  if (table.status === 'billed') {
+                    handleRecordPayment(table);
+                  } else {
+                    handleTableClick(table);
+                  }
+                }}
               >
                 <Text style={[
                   styles.tableName,
@@ -199,6 +239,9 @@ export default function TerminalScreen() {
                 ]}>
                   {table.status.toUpperCase()}
                 </Text>
+                {table.status === 'billed' && (
+                  <Text style={styles.tablePayHint}>Tap to Pay 💳</Text>
+                )}
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -363,6 +406,7 @@ const styles = StyleSheet.create({
   tableBilled: { backgroundColor: '#ef4444', borderColor: '#ef4444' },
   tableName: { fontSize: 16, fontWeight: 'bold', color: '#fff', marginBottom: 4 },
   tableStatus: { fontSize: 11, color: '#888', fontWeight: '600' },
+  tablePayHint: { fontSize: 11, color: '#fff', fontWeight: '700', marginTop: 4, opacity: 0.9 },
 
   activeTableBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

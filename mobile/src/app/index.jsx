@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, SafeAreaView, StatusBar } from 'react-native';
 import { TrendingUp, Users, Clock, IndianRupee, ArrowUpRight } from 'lucide-react-native';
 import api from '../api';
 
@@ -54,9 +54,27 @@ export default function DashboardScreen() {
 
   if (loading && !data) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#e94560" />
-      </View>
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="light-content" backgroundColor="#0f0f1a" />
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Dashboard</Text>
+          <Text style={styles.headerSub}>{new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+        </View>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={styles.grid}>
+            {[0,1,2,3].map(i => (
+              <View key={i} style={[styles.card, styles.skeletonCard]}>
+                <View style={styles.skeletonLine} />
+                <View style={[styles.skeletonLine, { width: '60%', marginTop: 8 }]} />
+              </View>
+            ))}
+          </View>
+          <View style={[styles.section, styles.skeletonCard]}>
+            <View style={[styles.skeletonLine, { marginBottom: 16 }]} />
+            {[0,1,2].map(i => <View key={i} style={[styles.skeletonLine, { marginBottom: 12 }]} />)}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
@@ -200,4 +218,11 @@ const styles = StyleSheet.create({
   orderTable: { color: '#ccc', fontSize: 13 },
   orderStatus: { fontSize: 11, fontWeight: 'bold' },
   noDataText: { color: '#666', textAlign: 'center', paddingVertical: 20 },
+  skeletonCard: { backgroundColor: '#1a1a2e' },
+  skeletonLine: {
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#2a2a3e',
+    width: '80%',
+  },
 });
