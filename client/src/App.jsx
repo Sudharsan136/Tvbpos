@@ -5,6 +5,7 @@ import PosLayout from './layouts/PosLayout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Terminal from './pages/Terminal';
+import Reports from './pages/Reports';
 import Kitchen from './pages/Kitchen';
 import Orders from './pages/Orders';
 import MenuManagement from './pages/MenuManagement';
@@ -41,6 +42,7 @@ export default function App() {
           <Route index element={<Navigate to="/terminal" replace />} />
           <Route path="dashboard" element={<ProtectedRoute adminOnly><Dashboard /></ProtectedRoute>} />
           <Route path="terminal" element={<Terminal />} />
+          <Route path="reports" element={<ProtectedRoute adminOnly><Reports /></ProtectedRoute>} />
           <Route path="tables" element={<ProtectedRoute adminOnly><TableManagement /></ProtectedRoute>} />
           <Route path="kitchen" element={<Kitchen />} />
           <Route path="orders" element={<Orders />} />

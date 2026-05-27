@@ -4,6 +4,7 @@ import { NavLink, useNavigate, Outlet } from 'react-router-dom';
 import {
   LayoutDashboard, Monitor, ChefHat, ClipboardList,
   UtensilsCrossed, Users, Settings, LogOut, Menu, X, LayoutGrid,
+  BarChart3,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
@@ -24,6 +25,7 @@ export default function PosLayout() {
   const navItems = [
     { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', adminOnly: true },
     { to: '/terminal', icon: Monitor, label: 'Terminal' },
+    { to: '/reports', icon: BarChart3, label: 'Reports', adminOnly: true },
     { to: '/tables', icon: LayoutGrid, label: 'Tables', adminOnly: true },
     { to: '/kitchen', icon: ChefHat, label: 'Kitchen (KDS)' },
     { to: '/orders', icon: ClipboardList, label: 'Orders' },

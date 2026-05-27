@@ -8,6 +8,7 @@
     "install-client": "cd client && npm install",
     "build-client": "cd client && npm run build",
     "build": "npm run install-server && npm run install-client && npm run build-client",
+    "seed-orders": "cd server && node seedOrders.js",
     "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\""
   },
   "devDependencies": {
